@@ -93,7 +93,7 @@ Docker will:
 ## 🔌 Step 4: Open Your Tools
 ### 💻 VSCode Server
 Open in your browser:
-👉 [https://localhost:8443](https://localhost:8443)
+👉 [http://localhost:8443](http://localhost:8443)
 Login with password: changeme
 
 You might need to bypass a browser security warning — it's safe locally.
