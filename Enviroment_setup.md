@@ -26,7 +26,8 @@ Open a terminal and run:
 
 ```bash
 mkdir synthetic-data-warehouse
-cd synthetic-data-warehouse'''
+cd synthetic-data-warehouse
+'''
 
 ## 📄 Step 3: Create docker-compose.yml
 Create a new file called docker-compose.yml and paste in the contents from the code block at the bottom titled docker-compose.yml.
@@ -73,3 +74,11 @@ services:
 volumes:
   mariadb_data:
 '''
+
+This sets up three services:
+
+- mariadb (the database)
+- vscode (browser-based code editor)
+- adminer (web SQL interface)
+
+
