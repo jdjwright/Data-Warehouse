@@ -101,14 +101,14 @@ You might need to bypass a browser security warning — it's safe locally.
 ### 🧠 Adminer (SQL Admin Tool)
 Open in your browser:
 👉 [http://localhost:8080](https://localhost:8080)
-
 Login details:
-|-----|----|
-|System | MariaDB|
-|Server | mariadb|
-|Username | trainee| 
-|Password | trainpass|
-| Database|  warehouse|
+| Field     | Value     |
+|-----------|-----------|
+| System    | MariaDB   |
+| Server    | mariadb   |
+| Username  | trainee   |
+| Password  | trainpass |
+| Database  | warehouse |
 
 ## 🧩 Step 5: Install Extensions in VSCode
 Once logged into VSCode in your browser:
