@@ -16,33 +16,33 @@ random.seed(42)
 gis_ids = random.sample(range(1_000_000, 9_999_999), total)
 sims_pks = random.sample(range(2_000_000, 9_999_999), total)
 isams_school_ids = random.sample(range(3_000_000, 9_999_999), total)
+
 # Format and sample from guaranteed-unique pools
 isams_user_codes_students = random.sample([f"stu{str(i).zfill(4)}" for i in range(10000)], students_to_create)
 isams_user_codes_staff = random.sample([f"stf{str(i).zfill(4)}" for i in range(10000, 99999)], staff_to_create)
 
-
-# Generate people from pre-allocated pools
+# Generate people using correct column names
 def generate_people(n, ids, user_codes, type="Student"):
     people = []
     for i in range(n):
         person = {
-            "gis_id": ids["gis"][i],
-            "sims_pk": ids["sims"][i],
-            "isams_school_id": str(ids["isams"][i]),
-            "isams_user_code": user_codes[i],
-            "account_type": type,
-            "person_bk": random.randint(1000, 9999),
-            "google_classroom_student_id": fake.lexify(text="gclass???????") if type == "Student" else None
+            "GIS ID": ids["gis"][i],
+            "SIMS PK": ids["sims"][i],
+            "iSAMS School ID": str(ids["isams"][i]),
+            "iSAMS User Code": user_codes[i],
+            "Account type": type,
+            "Person BK": random.randint(1000, 9999),
+            "Google classroom student_id": fake.lexify(text="gclass???????") if type == "Student" else None
         }
         people.append(person)
     return people
 
-# Save to MariaDB
+# Save using correct column casing
 def save_people_to_mariadb(people, db_uri="mysql+pymysql://trainee:trainpass@mariadb/warehouse"):
     df = pd.DataFrame(people)
     engine = sqlalchemy.create_engine(db_uri)
-    df.to_sql("dim_people", con=engine, if_exists="append", index=False)
-    return df["person_bk"].tolist()
+    df.to_sql("dim_People", con=engine, if_exists="append", index=False)
+    return df["Person BK"].tolist()
 
 # Prepare ID pools
 student_ids = {
@@ -56,7 +56,7 @@ staff_ids = {
     "isams": isams_school_ids[students_to_create:]
 }
 
-# Run the full pipeline
+# Run everything
 if __name__ == "__main__":
     students = generate_people(students_to_create, student_ids, isams_user_codes_students, "Student")
     student_bks = save_people_to_mariadb(students)
