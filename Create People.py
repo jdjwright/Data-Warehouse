@@ -1,82 +1,67 @@
-import pandas as pd
-import random
-import datetime
-import uuid
-import sqlalchemy
 from faker import Faker
+import random
+import pandas as pd
+import sqlalchemy
 
-# Setup
+# Configuration
+students_to_create = 3000
+staff_to_create = 500
+total = students_to_create + staff_to_create
+
 fake = Faker()
+Faker.seed(42)
 random.seed(42)
 
-# Load student BKs and GIS IDs from dim_people
-engine = sqlalchemy.create_engine("mysql+pymysql://trainee:trainpass@mariadb/warehouse")
-df_people = pd.read_sql("SELECT person_bk, gis_id FROM dim_people WHERE account_type = 'Student'", engine)
+# Pre-generate globally unique IDs
+gis_ids = random.sample(range(1_000_000, 9_999_999), total)
+sims_pks = random.sample(range(2_000_000, 9_999_999), total)
+isams_school_ids = random.sample(range(3_000_000, 9_999_999), total)
+# Format and sample from guaranteed-unique pools
+isams_user_codes_students = random.sample([f"stu{str(i).zfill(4)}" for i in range(10000)], students_to_create)
+isams_user_codes_staff = random.sample([f"stf{str(i).zfill(4)}" for i in range(10000, 99999)], staff_to_create)
 
-# Sample lists
-year_groups = ["N", "R", "1", '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13']
-tutor_groups = ["A", "B", "C", "D", "E", "F"]
-houses = ["Red", "Blue", "Green", "Yellow"]
-nationalities = ["British", "Malaysian", "Indian", "Chinese", "Australian", "American"]
-ethnicities = ["White", "Asian", "Black", "Mixed", "Other"]
-eal_statuses = ["EAL", "Non-EAL"]
-sen_statuses = ["None", "SEN Support", "EHCP"]
-email_domain = "example.edu"
 
-# Generate a single student record using info from dim_people
-def generate_fake_student(row):
-    first_name = fake.first_name()
-    last_name = fake.last_name()
-    preferred_first_name = first_name if random.random() > 0.2 else fake.first_name()
+# Generate people from pre-allocated pools
+def generate_people(n, ids, user_codes, type="Student"):
+    people = []
+    for i in range(n):
+        person = {
+            "gis_id": ids["gis"][i],
+            "sims_pk": ids["sims"][i],
+            "isams_school_id": str(ids["isams"][i]),
+            "isams_user_code": user_codes[i],
+            "account_type": type,
+            "person_bk": random.randint(1000, 9999),
+            "google_classroom_student_id": fake.lexify(text="gclass???????") if type == "Student" else None
+        }
+        people.append(person)
+    return people
 
-    year_group = random.choice(year_groups)
-    age_position = year_groups.index(year_group)
-    max_age = 18 - (len(year_groups) - 1 - age_position)
-    min_age = max_age - 1
-    dob = fake.date_of_birth(minimum_age=min_age, maximum_age=max_age)
+# Save to MariaDB
+def save_people_to_mariadb(people, db_uri="mysql+pymysql://trainee:trainpass@mariadb/warehouse"):
+    df = pd.DataFrame(people)
+    engine = sqlalchemy.create_engine(db_uri)
+    df.to_sql("dim_people", con=engine, if_exists="append", index=False)
+    return df["person_bk"].tolist()
 
-    # Determine realistic join date range
-    max_years_back = 15 - (len(year_groups) - 1 - age_position)
-    max_join_days_ago = max_years_back * 365
-    join_date = datetime.date.today() - datetime.timedelta(days=random.randint(0, max_join_days_ago))
-    row_effective_date = join_date
-    leave_date = None
-    row_expiration_date = leave_date or None
+# Prepare ID pools
+student_ids = {
+    "gis": gis_ids[:students_to_create],
+    "sims": sims_pks[:students_to_create],
+    "isams": isams_school_ids[:students_to_create]
+}
+staff_ids = {
+    "gis": gis_ids[students_to_create:],
+    "sims": sims_pks[students_to_create:],
+    "isams": isams_school_ids[students_to_create:]
+}
 
-    return {
-        "First Name": first_name,
-        "Last name": last_name,
-        "Student Email": f"{str(row['gis_id'])}@{email_domain}",
-        "Preferred first name": preferred_first_name,
-        "FAM email": fake.email(),
-        "GIS ID Number": str(row["gis_id"]),
-        "Gender": random.choice(["Male", "Female"]),
-        "Date of Birth": int(dob.strftime('%Y%m%d')),
-        "Parent Salutation": f"Mr. and Mrs. {last_name}",
-        "House": random.choice(houses),
-        "Year Group": year_group,
-        "Tutor Group": year_group + random.choice(tutor_groups),
-        "EAL Status": random.choice(eal_statuses),
-        "SEN Status": random.choice(sen_statuses),
-        "SEN Profile URL": fake.url() if random.random() > 0.8 else None,
-        "Exam candidate number": str(random.randint(100000, 999999)),
-        "Nationality": random.choice(nationalities),
-        "Ethnicity": random.choice(ethnicities),
-        "GIS Join Date": int(join_date.strftime('%Y%m%d')),
-        "GIS Leave Date": int(leave_date.strftime('%Y%m%d')) if leave_date else None,
-        "Row Effective Date": row_effective_date,
-        "Row Expiration Date": row_expiration_date,
-        "ISAMS PK": str(uuid.uuid4()),
-        "On Roll": "Yes" if leave_date is None else "No",
-        "UCAS Personal id": random.randint(100000000, 999999999) if random.random() > 0.5 else None,
-        "Reason for leaving": fake.sentence(nb_words=6) if leave_date else None,
-        "Destination after leaving": fake.job() if leave_date else None,
-        "Destination institution": fake.company() if leave_date else None,
-        "Graduation academic year": f"{join_date.year + 5}/{(join_date.year + 6)%100:02d}" if leave_date else None,
-        "Person BK": row["person_bk"],
-    }
+# Run the full pipeline
+if __name__ == "__main__":
+    students = generate_people(students_to_create, student_ids, isams_user_codes_students, "Student")
+    student_bks = save_people_to_mariadb(students)
+    print(f"✅ Saved {len(students)} students. Sample BKs: {student_bks[:5]}")
 
-# Generate and insert students
-students = [generate_fake_student(row) for _, row in df_people.iterrows()]
-df_students = pd.DataFrame(students)
-df_students.to_sql("dim_students_isams", con=engine, if_exists="append", index=False)
+    staff = generate_people(staff_to_create, staff_ids, isams_user_codes_staff, "Staff")
+    staff_bks = save_people_to_mariadb(staff)
+    print(f"✅ Saved {len(staff)} staff. Sample BKs: {staff_bks[:5]}")
