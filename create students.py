@@ -31,6 +31,21 @@ try:
     sen_statuses = school_params.get('sen_statuses', ["None", "SEN Support", "EHCP"])
     email_domain = school_params.get('email_domain', "example.edu")
 
+    # Load student_generation_options with defaults
+    student_gen_opts = config.get('student_generation_options', {})
+    if not student_gen_opts:
+        print(f"Warning: 'student_generation_options' section not found in {CONFIG_PATH}. Using default student generation parameters.")
+
+    # Specific options with their defaults from original script
+    preferred_name_prob = student_gen_opts.get('preferred_name_difference_probability', 0.2)
+    sen_profile_url_prob = student_gen_opts.get('sen_profile_url_probability', 0.2) # Original was > 0.8 for None, so < 0.2 for URL
+    exam_candidate_min = student_gen_opts.get('exam_candidate_number_min', 100000)
+    exam_candidate_max = student_gen_opts.get('exam_candidate_number_max', 999999)
+    ucas_id_prob = student_gen_opts.get('ucas_personal_id_probability', 0.5) # Original was > 0.5 for None, so < 0.5 for ID
+    ucas_id_min = student_gen_opts.get('ucas_personal_id_min', 100000000)
+    ucas_id_max = student_gen_opts.get('ucas_personal_id_max', 999999999)
+
+
 except FileNotFoundError:
     print(f"Error: Configuration file '{CONFIG_PATH}' not found. Exiting.")
     sys.exit(1)
@@ -53,7 +68,8 @@ df_people = pd.read_sql("SELECT person_bk, gis_id FROM dim_people WHERE account_
 def generate_fake_student(row):
     first_name = fake.first_name()
     last_name = fake.last_name()
-    preferred_first_name = first_name if random.random() > 0.2 else fake.first_name()
+    # Use preferred_name_prob from config
+    preferred_first_name = first_name if random.random() > preferred_name_prob else fake.first_name()
 
     year_group = random.choice(year_groups) # Uses config year_groups
     age_position = year_groups.index(year_group) # Uses config year_groups
@@ -84,8 +100,8 @@ def generate_fake_student(row):
         "tutor_group": year_group + random.choice(tutor_groups_suffix), # Uses config tutor_groups_suffix
         "eal_status": random.choice(eal_statuses), # Uses config eal_statuses
         "sen_status": random.choice(sen_statuses), # Uses config sen_statuses
-        "sen_profile_url": fake.url() if random.random() > 0.8 else None,
-        "exam_candidate_number": str(random.randint(100000, 999999)),
+        "sen_profile_url": fake.url() if random.random() < sen_profile_url_prob else None, # Use config probability
+        "exam_candidate_number": str(random.randint(exam_candidate_min, exam_candidate_max)), # Use config min/max
         "nationality": random.choice(nationalities), # Uses config nationalities
         "ethnicity": random.choice(ethnicities), # Uses config ethnicities
         "gis_join_date": int(join_date.strftime('%Y%m%d')),
@@ -94,7 +110,8 @@ def generate_fake_student(row):
         "row_expiration_date": row_expiration_date,
         "isams_pk": str(uuid.uuid4()),
         "on_roll": "Yes" if leave_date is None else "No",
-        "ucas_personal_id": random.randint(100000000, 999999999) if random.random() > 0.5 else None,
+        # Use config probability and min/max for ucas_personal_id
+        "ucas_personal_id": str(random.randint(ucas_id_min, ucas_id_max)) if random.random() < ucas_id_prob else None,
         "reason_for_leaving": fake.sentence(nb_words=6) if leave_date else None,
         "destination_after_leaving": fake.job() if leave_date else None,
         "destination_institution": fake.company() if leave_date else None,

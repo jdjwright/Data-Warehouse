@@ -19,8 +19,34 @@ try:
     db_port = db_config.get('port', 3306)
 
     school_params = config.get('school_parameters', {})
-    students_to_create = school_params.get('students_to_create', 1500) # Default if not in config
-    staff_to_create = school_params.get('staff_to_create', 150)     # Default if not in config
+    students_to_create = school_params.get('students_to_create', 1500) 
+    staff_to_create = school_params.get('staff_to_create', 150)     
+
+    # Load id_generation parameters with defaults from original script
+    id_gen_config = config.get('id_generation', {})
+    if not id_gen_config:
+        print(f"Warning: 'id_generation' section not found in {CONFIG_PATH}. Using default ID generation parameters.")
+
+    gis_id_min = id_gen_config.get('gis_id_min', 1_000_000)
+    gis_id_max = id_gen_config.get('gis_id_max', 9_999_999)
+    sims_pk_min = id_gen_config.get('sims_pk_min', 2_000_000)
+    sims_pk_max = id_gen_config.get('sims_pk_max', 9_999_999)
+    isams_school_id_min = id_gen_config.get('isams_school_id_min', 3_000_000)
+    isams_school_id_max = id_gen_config.get('isams_school_id_max', 9_999_999)
+    
+    student_user_code_prefix = id_gen_config.get('student_user_code_prefix', "stu")
+    student_user_code_range_max = id_gen_config.get('student_user_code_range_max', 10000)
+    
+    staff_user_code_prefix = id_gen_config.get('staff_user_code_prefix', "stf")
+    staff_user_code_range_min = id_gen_config.get('staff_user_code_range_min', 10000)
+    staff_user_code_range_max = id_gen_config.get('staff_user_code_range_max', 99999)
+
+    person_bk_min_global = id_gen_config.get('person_bk_min', 1000) # Store globally for generate_people
+    person_bk_max_global = id_gen_config.get('person_bk_max', 9999) # Store globally for generate_people
+
+    # Warnings for missing specific keys (optional, as defaults are handled by .get)
+    # Example: if 'gis_id_min' not in id_gen_config: print(f"Warning: 'gis_id_min' not in id_generation. Using default.")
+
 
 except FileNotFoundError:
     print(f"Error: Configuration file '{CONFIG_PATH}' not found. Exiting.")
@@ -39,16 +65,24 @@ fake = Faker()
 Faker.seed(42)
 random.seed(42)
 
-# Pre-generate globally unique IDs
-gis_ids = random.sample(range(1_000_000, 9_999_999), total)
-sims_pks = random.sample(range(2_000_000, 9_999_999), total)
-isams_school_ids = random.sample(range(3_000_000, 9_999_999), total)
-# Format and sample from guaranteed-unique pools
-isams_user_codes_students = random.sample([f"stu{str(i).zfill(4)}" for i in range(10000)], students_to_create)
-isams_user_codes_staff = random.sample([f"stf{str(i).zfill(4)}" for i in range(10000, 99999)], staff_to_create)
+# Pre-generate globally unique IDs using parameters from config (with defaults)
+gis_ids = random.sample(range(gis_id_min, gis_id_max), total)
+sims_pks = random.sample(range(sims_pk_min, sims_pk_max), total)
+isams_school_ids = random.sample(range(isams_school_id_min, isams_school_id_max), total)
 
+# Format and sample from guaranteed-unique pools using parameters from config
+isams_user_codes_students = random.sample(
+    [f"{student_user_code_prefix}{str(i).zfill(4)}" for i in range(student_user_code_range_max)], 
+    students_to_create
+)
+isams_user_codes_staff = random.sample(
+    [f"{staff_user_code_prefix}{str(i).zfill(4)}" for i in range(staff_user_code_range_min, staff_user_code_range_max)], 
+    staff_to_create
+)
 
 # Generate people from pre-allocated pools
+# Pass person_bk_min and person_bk_max to the function if they are needed there,
+# or use the global variables directly as they are now defined.
 def generate_people(n, ids, user_codes, type="Student"):
     people = []
     for i in range(n):
@@ -58,7 +92,7 @@ def generate_people(n, ids, user_codes, type="Student"):
             "isams_school_id": str(ids["isams"][i]),
             "isams_user_code": user_codes[i],
             "account_type": type,
-            "person_bk": random.randint(1000, 9999),
+            "person_bk": random.randint(person_bk_min_global, person_bk_max_global), # Use global config values
             "google_classroom_student_id": fake.lexify(text="gclass???????") if type == "Student" else None
         }
         people.append(person)

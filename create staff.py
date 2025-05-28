@@ -34,6 +34,31 @@ try:
     # Default min/max students from original script
     min_students_per_class = class_gen_config.get('min_students_per_class', 8)
     max_students_per_class = class_gen_config.get('max_students_per_class', 24)
+    
+    # New class_generation parameters
+    teacher_b_prob = class_gen_config.get('teacher_b_probability', 0.3)
+    teacher_c_prob = class_gen_config.get('teacher_c_probability', 0.05)
+    tg_isams_id_min = class_gen_config.get('isams_id_teaching_group_min', 10000)
+    tg_isams_id_max = class_gen_config.get('isams_id_teaching_group_max', 99999)
+    if 'teacher_b_probability' not in class_gen_config : print(f"Warning: 'teacher_b_probability' not in class_generation. Using default {teacher_b_prob}.")
+    if 'teacher_c_probability' not in class_gen_config : print(f"Warning: 'teacher_c_probability' not in class_generation. Using default {teacher_c_prob}.")
+    if 'isams_id_teaching_group_min' not in class_gen_config : print(f"Warning: 'isams_id_teaching_group_min' not in class_generation. Using default {tg_isams_id_min}.")
+    if 'isams_id_teaching_group_max' not in class_gen_config : print(f"Warning: 'isams_id_teaching_group_max' not in class_generation. Using default {tg_isams_id_max}.")
+
+    # Load staff_generation_options with defaults
+    staff_gen_opts = config.get('staff_generation_options', {})
+    if not staff_gen_opts:
+        print(f"Warning: 'staff_generation_options' section not found in {CONFIG_PATH}. Using default staff generation parameters.")
+
+    staff_code_len = staff_gen_opts.get('staff_code_length_from_surname', 3)
+    staff_sims_pk_min = staff_gen_opts.get('sims_pk_min', 10000)
+    staff_sims_pk_max = staff_gen_opts.get('sims_pk_max', 99999)
+    staff_row_expiry_prob = staff_gen_opts.get('row_expiry_probability', 0.1) # Probability of having an expiry date
+    if 'staff_code_length_from_surname' not in staff_gen_opts : print(f"Warning: 'staff_code_length_from_surname' not in staff_generation_options. Using default {staff_code_len}.")
+    if 'sims_pk_min' not in staff_gen_opts : print(f"Warning: 'sims_pk_min' not in staff_generation_options. Using default {staff_sims_pk_min}.")
+    if 'sims_pk_max' not in staff_gen_opts : print(f"Warning: 'sims_pk_max' not in staff_generation_options. Using default {staff_sims_pk_max}.")
+    if 'row_expiry_probability' not in staff_gen_opts : print(f"Warning: 'row_expiry_probability' not in staff_generation_options. Using default {staff_row_expiry_prob}.")
+
 
 except FileNotFoundError:
     print(f"Error: Configuration file '{CONFIG_PATH}' not found. Exiting.")
@@ -82,31 +107,38 @@ for _, row in people_df.iterrows():
     full_email = f"{email}@{email_domain}" # Use config email_domain
     used_emails.add(full_email)
 
-    # === Staff code (first 3 letters of surname, uppercase) ===
-    base_code = last_name[:3].upper()
+    # === Staff code generation using config ===
+    base_code = last_name[:staff_code_len].upper()
     code = base_code
     suffix = 1
     while code in used_staff_codes:
-        code = f"{base_code}{suffix}"
+        code = f"{base_code}{suffix}" # Max length of code can exceed 4 if suffix is large
         suffix += 1
-        if len(code) > 4:
-            code = f"{base_code[:2]}{suffix}"
-    used_staff_codes.add(code)
+        if len(code) > 4 and staff_code_len > 1 : # If code gets too long, shorten base part
+             # Ensure base_code_shortened is not empty if staff_code_len was 1
+            base_code_shortened_len = max(1, staff_code_len -1)
+            base_code_shortened = last_name[:base_code_shortened_len].upper()
+            code = f"{base_code_shortened}{suffix}"
+        elif len(code) > 4 and staff_code_len ==1:
+            code = f"{last_name[0].upper()}{suffix}"
+
+
+    used_staff_codes.add(code[:4]) # Ensure final code is max 4 chars
 
     staff_rows.append({
-        "warehouse_pk": row["Warehouse PK"], # Changed
-        "sims_pk": random.randint(10000, 99999), # Changed
-        "title": random.choice(["Mr", "Ms", "Mrs", "Dr"]), # Changed
-        "first_name": first_name, # Changed
-        "last_name": last_name, # Changed
-        "staff_code": code[:4],  # truncate to fit 4-char limit, Changed
-        "full_name": f"{first_name} {last_name}", # Changed
-        "email_address": full_email, # Changed
-        "row_effective_date": fake.date_between(start_date='-10y', end_date='-1y'), # Changed
-        "row_expiry_date": None if random.random() > 0.1 else fake.date_between(start_date='today', end_date='+1y'), # Changed
-        "fam_email_address": fake.email() # Changed
+        "warehouse_pk": row["Warehouse PK"], 
+        "sims_pk": random.randint(staff_sims_pk_min, staff_sims_pk_max), # Use config sims_pk
+        "title": random.choice(["Mr", "Ms", "Mrs", "Dr"]), 
+        "first_name": first_name, 
+        "last_name": last_name, 
+        "staff_code": code[:4],  # Use generated code, truncated to 4 chars
+        "full_name": f"{first_name} {last_name}", 
+        "email_address": full_email, 
+        "row_effective_date": fake.date_between(start_date='-10y', end_date='-1y'), 
+        "row_expiry_date": fake.date_between(start_date='today', end_date='+1y') if random.random() < staff_row_expiry_prob else None, # Use config probability
+        "fam_email_address": fake.email() 
     })
-    print(f"Added staff: {full_email} / code: {code}")
+    print(f"Added staff: {full_email} / code: {code[:4]}")
 
 print("Finished adding all staff")
 # Insert into MariaDB
@@ -164,26 +196,27 @@ for _, dept in departments_df.iterrows():
                     break
 
             teacher = random.choice(teacher_pks)
-            teacher_b = random.choice(teacher_pks) if random.random() < 0.3 else None
-            teacher_c = random.choice(teacher_pks) if random.random() < 0.05 else None
+            # Use config probabilities for teacher_b and teacher_c
+            teacher_b = random.choice(teacher_pks) if random.random() < teacher_b_prob else None
+            teacher_c = random.choice(teacher_pks) if random.random() < teacher_c_prob else None
 
             teaching_groups.append({
-                "sims_pk": random.randint(100000, 999999), # Changed
-                "academic_year": academic_year, # Changed
-                "teacher": teacher, # Changed
-                "teacher_b": teacher_b, # Changed
-                "teacher_c": teacher_c, # Changed
-                "teacher_name": None, # Changed
-                "teacher_b_name": None, # Changed
-                "teacher_c_name": None, # Changed
-                "class_code": class_code, # Changed
-                "code_and_year": code_and_year, # Changed
-                "row_effective_date": effective_date, # Changed
-                "row_expiry_date": None, # Changed
-                "current_group": "Yes", # Changed
-                "subject_name": subject_name, # Changed
-                "teacher_a_b_or_c": None, # Changed
-                "isams_id": random.randint(10000, 99999) # Changed
+                "sims_pk": random.randint(100000, 999999), 
+                "academic_year": academic_year, 
+                "teacher": teacher, 
+                "teacher_b": teacher_b, 
+                "teacher_c": teacher_c, 
+                "teacher_name": None, 
+                "teacher_b_name": None, 
+                "teacher_c_name": None, 
+                "class_code": class_code, 
+                "code_and_year": code_and_year, 
+                "row_effective_date": effective_date, 
+                "row_expiry_date": None, 
+                "current_group": "Yes", 
+                "subject_name": subject_name, 
+                "teacher_a_b_or_c": None, 
+                "isams_id": random.randint(tg_isams_id_min, tg_isams_id_max) # Use config isams_id for TGs
             })
 
 # Save to MariaDB

@@ -21,7 +21,10 @@ try:
     DB_URI = f"mysql+pymysql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
 
     attendance_rules = config.get('attendance_rules', {})
-    # Use default week_structure from original script if not in config
+    # Load attendance_rules parameters with defaults
+    if not attendance_rules:
+        print(f"Warning: 'attendance_rules' section not found in {CONFIG_PATH}. Using default attendance parameters.")
+    
     week_structure = attendance_rules.get('week_structure', {
         "Monday": ["AM Reg", "P1", "P2", "P3", "PM Reg", "P4"],
         "Tuesday": ["AM Reg", "P1", "P2", "P3", "PM Reg", "P4"],
@@ -29,13 +32,41 @@ try:
         "Thursday": ["AM Reg", "P1", "P2", "P3", "PM Reg", "P4"],
         "Friday": ["P1", "P2", "P3", "P4"]
     })
-    # Use default attendance_codes_probabilities from original script if not in config
-    attendance_codes_probabilities = attendance_rules.get('attendance_codes_probabilities', {
-        "/": 0.90, "N": 0.03, "I": 0.03, "M": 0.01, "L": 0.02, "H": 0.005, "O": 0.005
-    })
-    if not week_structure or not attendance_codes_probabilities:
-        print("Warning: Attendance rules (week_structure or attendance_codes_probabilities) missing or empty in config. Using defaults.")
-        # Defaults already set above, so this is just a warning.
+    if 'week_structure' not in attendance_rules: print(f"Warning: 'week_structure' not in attendance_rules. Using default.")
+
+    DEFAULT_ATTENDANCE_CODES = {
+        "/": {"description": "Present", "probability": 0.90},
+        "N": {"description": "Absent - no reason", "probability": 0.03},
+        "I": {"description": "Illness", "probability": 0.03},
+        "M": {"description": "Medical / Dental", "probability": 0.01},
+        "L": {"description": "Late", "probability": 0.02},
+        "H": {"description": "Authorised holiday", "probability": 0.005},
+        "O": {"description": "Unauthorised holiday", "probability": 0.005}
+    }
+    attendance_codes_config = attendance_rules.get('attendance_codes', DEFAULT_ATTENDANCE_CODES)
+    if 'attendance_codes' not in attendance_rules: print(f"Warning: 'attendance_codes' not in attendance_rules. Using default structure.")
+
+    time_rec_hour_min = attendance_rules.get('time_recorded_hour_min', 8)
+    time_rec_hour_max = attendance_rules.get('time_recorded_hour_max', 15)
+    time_rec_minute_choices = attendance_rules.get('time_recorded_minute_choices', [0, 10, 30, 45])
+    minutes_late_min = attendance_rules.get('minutes_late_min', 1)
+    minutes_late_max = attendance_rules.get('minutes_late_max', 10)
+    room_prefix = attendance_rules.get('room_prefix', 'R')
+    room_num_min = attendance_rules.get('room_number_min', 1)
+    room_num_max = attendance_rules.get('room_number_max', 99)
+    sims_class_pk_min = attendance_rules.get('sims_class_pk_min', 10000)
+    sims_class_pk_max = attendance_rules.get('sims_class_pk_max', 99999)
+    sims_subject_pk_min = attendance_rules.get('sims_subject_pk_min', 100)
+    sims_subject_pk_max = attendance_rules.get('sims_subject_pk_max', 999)
+
+    # Warnings for individual missing keys
+    param_defaults_map = {
+        'time_recorded_hour_min': 8, 'time_recorded_hour_max': 15, 'time_recorded_minute_choices': [0, 10, 30, 45],
+        'minutes_late_min': 1, 'minutes_late_max': 10, 'room_prefix': 'R', 'room_number_min': 1, 'room_number_max': 99,
+        'sims_class_pk_min': 10000, 'sims_class_pk_max': 99999, 'sims_subject_pk_min': 100, 'sims_subject_pk_max': 999
+    }
+    for key, default_val in param_defaults_map.items():
+        if key not in attendance_rules: print(f"Warning: '{key}' not in attendance_rules. Using default value: {default_val}.")
 
 except FileNotFoundError:
     print(f"Error: Configuration file '{CONFIG_PATH}' not found. Exiting.")
@@ -53,28 +84,18 @@ except Exception as e:
 engine = sqlalchemy.create_engine(DB_URI) # Use loaded DB_URI
 random.seed(42)
 
-# Generate attendance_mark_choices from config probabilities
-attendance_mark_choices = [
-    mark for mark, prob in attendance_codes_probabilities.items() for _ in range(int(prob * 1000))
-]
+# Generate attendance_mark_choices from the new attendance_codes_config structure
+attendance_mark_choices = []
+for mark, details in attendance_codes_config.items():
+    try:
+        prob = float(details.get('probability', 0)) # Default to 0 if probability is missing or invalid
+        attendance_mark_choices.extend([mark] * int(prob * 1000))
+    except (ValueError, TypeError):
+        print(f"Warning: Invalid probability for mark '{mark}' in attendance_codes. Skipping this mark for choices.")
 
-# Hardcoded mapping for mark descriptions as per requirements
-mark_to_description = {
-    "/": "Present",
-    "N": "Absent - no reason",
-    "I": "Illness",
-    "M": "Medical / Dental",
-    "L": "Late",
-    "H": "Authorised holiday",
-    "O": "Unauthorised holiday",
-    "Y": "Authorised Late", # Adding a few more common ones just in case
-    "U": "Unauthorised absence (not holiday)",
-    "C": "Authorised absence - other",
-    "E": "Excluded",
-    "S": "Study Leave",
-    "P": "Present (AM/PM)",
-    "B": "Approved Educational Activity"
-}
+if not attendance_mark_choices:
+    print("Error: attendance_mark_choices is empty. Check attendance_codes probabilities in config. Using fallback mark '/'.")
+    attendance_mark_choices = ['/'] # Fallback if all probabilities are zero or invalid
 
 
 # Get current academic year
@@ -157,26 +178,29 @@ for year_group_val in merged["year_group"].unique(): # Changed column name
             for date_pk_val, date_val_dt, day_val, period_val in selected_slots: # Renamed to avoid conflict
                 mark = random.choice(attendance_mark_choices)
                 attendance_records.append({
-                    "date_pk": date_pk_val, # Changed
-                    "period": period_val, # Changed
-                    "date_recorded": int(date_val_dt.strftime("%Y%m%d")), # Changed
-                    "time_recorded": datetime.time(hour=random.randint(8, 15), minute=random.choice([0, 10, 30, 45])), # Changed
-                    "teaching_group_pk": class_id, # Changed
-                    "student_pk": sid, # Changed
-                    "student_warehouse_bk": student_bk_val, # Changed
-                    "recording_teacher_pk": teacher_bk_val, # Changed
-                    "recording_teacher_warehouse_bk": teacher_bk_val, # Changed
-                    "mark": mark, # Changed
-                    "mark_description": mark_to_description.get(mark, "Unknown code"), # Changed
-                    "minutes_late": random.randint(1, 10) if mark == "L" else None, # Changed
-                    "comment": None, # Changed
-                    "class_code": class_code, # Changed
-                    "subject": subject, # Changed
-                    "room": f"R{random.randint(1, 99)}", # Changed
-                    "class_teacher": teacher_bk_val, # Changed
-                    "class_teacher_warehouse_bk": teacher_bk_val, # Changed
-                    "sims_class_pk": random.randint(10000, 99999), # Changed
-                    "sims_subject_pk": random.randint(100, 999) # Changed
+                    "date_pk": date_pk_val,
+                    "period": period_val,
+                    "date_recorded": int(date_val_dt.strftime("%Y%m%d")),
+                    "time_recorded": datetime.time(
+                        hour=random.randint(time_rec_hour_min, time_rec_hour_max), 
+                        minute=random.choice(time_rec_minute_choices)
+                    ),
+                    "teaching_group_pk": class_id,
+                    "student_pk": sid,
+                    "student_warehouse_bk": student_bk_val,
+                    "recording_teacher_pk": teacher_bk_val,
+                    "recording_teacher_warehouse_bk": teacher_bk_val,
+                    "mark": mark,
+                    "mark_description": attendance_codes_config.get(mark, {}).get('description', "Unknown code"),
+                    "minutes_late": random.randint(minutes_late_min, minutes_late_max) if mark == "L" else None,
+                    "comment": None,
+                    "class_code": class_code,
+                    "subject": subject,
+                    "room": f"{room_prefix}{random.randint(room_num_min, room_num_max)}",
+                    "class_teacher": teacher_bk_val,
+                    "class_teacher_warehouse_bk": teacher_bk_val,
+                    "sims_class_pk": random.randint(sims_class_pk_min, sims_class_pk_max),
+                    "sims_subject_pk": random.randint(sims_subject_pk_min, sims_subject_pk_max)
                 })
                 student_timetable[(student_bk_val, day_val, period_val)] = True
 

@@ -71,32 +71,54 @@ def create_report_grades(config_path='config.json'):
             rows_loaded = len(df_to_load)
             print(f"Successfully loaded {rows_loaded} rows into '{table_name}' table from {csv_path}.")
         else:
-            print("Creating default report grades...")
-            default_grades_data = {
-                'result': ['A*', 'A', 'B', 'C', 'D', 'E', 'U', '9', '8', '7', '6', '5', '4', '3', '2', '1', 'Pass', 'Fail', 'Merit', 'Distinction'],
-                'numerical_result': [9.5, 9.0, 8.0, 7.0, 6.0, 5.0, 4.0, 9.0, 8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0, 1.0, 0.0, 2.0, 3.0],
-                'data_type': ['Attainment', 'Attainment', 'Attainment', 'Attainment', 'Attainment', 'Attainment', 'Attainment', 'Attainment', 'Attainment', 'Attainment', 'Attainment', 'Attainment', 'Attainment', 'Attainment', 'Attainment', 'Attainment', 'Generic', 'Generic', 'Generic', 'Generic'],
-                'category': ['Single grades', 'Single grades', 'Single grades', 'Single grades', 'Single grades', 'Single grades', 'Single grades', 'GCSE 9-1', 'GCSE 9-1', 'GCSE 9-1', 'GCSE 9-1', 'GCSE 9-1', 'GCSE 9-1', 'GCSE 9-1', 'GCSE 9-1', 'GCSE 9-1', 'Pass/Fail', 'Pass/Fail', 'BTEC', 'BTEC']
-            }
-            df_default_grades = pd.DataFrame(default_grades_data)
+            print("Creating default report grades from config...")
+            school_params = config.get('school_parameters', {})
+            default_grades_list = school_params.get('default_report_grades_list')
 
-            # Add any missing columns with default values as per schema
+            if not default_grades_list:
+                print("Error: 'default_report_grades_list' not found or empty in config['school_parameters']. Cannot create default report grades.")
+                return # Or raise an error
+            
+            df_default_grades = pd.DataFrame(default_grades_list)
+
+            # Ensure all required columns from the schema are present, adding them with defaults if missing
             # Schema columns: id (auto), result, numerical_result, ucas_points, gis_points, data_type, printable_result, hex_colour, hex_colour_text, description, total_grades, igcse_pass, category
-            df_default_grades['ucas_points'] = None
-            df_default_grades['gis_points'] = None
-            df_default_grades['printable_result'] = df_default_grades['result'] # Default printable_result to be same as result
-            df_default_grades['hex_colour'] = None
-            df_default_grades['hex_colour_text'] = None
-            df_default_grades['description'] = df_default_grades['result'] + " - " + df_default_grades['category'] # Example description
-            df_default_grades['total_grades'] = 1 # Default to 1
-            df_default_grades['igcse_pass'] = None # Could be boolean based on result/category logic if needed
+            
+            # Core columns from config: result, numerical_result, data_type, category, ucas_points, gis_points, printable_result, hex_colour, hex_colour_text, description, total_grades, igcse_pass
+            # The config now provides values (even if null) for most of these.
+            # This logic will ensure they exist if the config list was missing some, or set defaults for any totally new schema columns.
+            
+            schema_columns_with_defaults = {
+                'ucas_points': None,
+                'gis_points': None,
+                'printable_result': df_default_grades['result'] if 'result' in df_default_grades.columns else None, # Default to 'result'
+                'hex_colour': None,
+                'hex_colour_text': None,
+                'description': (df_default_grades['result'] + " - " + df_default_grades['category']) if ('result' in df_default_grades.columns and 'category' in df_default_grades.columns) else 'Default Description',
+                'total_grades': 1,
+                'igcse_pass': None # boolean/int
+            }
+
+            for col, default_value in schema_columns_with_defaults.items():
+                if col not in df_default_grades.columns:
+                    df_default_grades[col] = default_value
+            
+            # Ensure base columns are present if by some chance the config list was malformed for a specific record
+            base_required_cols = ['result', 'numerical_result', 'data_type', 'category']
+            for col in base_required_cols:
+                 if col not in df_default_grades.columns:
+                     df_default_grades[col] = None # Or a more specific default if appropriate
+                     print(f"Warning: Column '{col}' was missing from default_report_grades_list items. Added with None.")
+
 
             df_default_grades.to_sql(table_name, con=engine, if_exists='replace', index=False)
             rows_loaded = len(df_default_grades)
-            print(f"Successfully created and loaded {rows_loaded} default rows into '{table_name}' table.")
+            print(f"Successfully created and loaded {rows_loaded} default rows into '{table_name}' table from config.")
 
     except FileNotFoundError:
         print(f"Error: Configuration file not found at {config_path}")
+    except KeyError as e:
+        print(f"Error: Missing key {e} in configuration. Cannot create default report grades.")
     except json.JSONDecodeError:
         print(f"Error: Could not decode JSON from {config_path}")
     except exc.SQLAlchemyError as e:

@@ -64,19 +64,26 @@ def create_departments(config_path='config.json'):
             rows_loaded = len(df_to_load)
             print(f"Successfully loaded {rows_loaded} rows into '{table_name}' table from {csv_path}.")
         else:
-            print("Creating default departments...")
-            default_depts_data = {
-                'isams_subject_code': ['PHY', 'ENG', 'MAT', 'BIO', 'CHE', 'HIS', 'GEO', 'ART', 'MUS', 'PE'],
-                'subject_name': ['Physics', 'English', 'Mathematics', 'Biology', 'Chemistry', 'History', 'Geography', 'Art', 'Music', 'Physical Education'],
-                'report_name': ['Physics', 'English', 'Maths', 'Biology', 'Chemistry', 'History', 'Geography', 'Art', 'Music', 'PE']
-            }
-            df_default_depts = pd.DataFrame(default_depts_data)
+            print("Creating default departments from config...")
+            school_params = config.get('school_parameters', {})
+            default_depts_list = school_params.get('default_department_list')
+
+            if not default_depts_list:
+                print("Error: 'default_department_list' not found or empty in config['school_parameters']. Cannot create default departments.")
+                return # Or raise an error
+
+            df_default_depts = pd.DataFrame(default_depts_list)
+            # Ensure required columns are present, if not, an error will be raised by to_sql or DataFrame creation
+            # For this table, isams_subject_code, subject_name, report_name are expected.
+            
             df_default_depts.to_sql(table_name, con=engine, if_exists='replace', index=False)
             rows_loaded = len(df_default_depts)
-            print(f"Successfully created and loaded {rows_loaded} default rows into '{table_name}' table.")
+            print(f"Successfully created and loaded {rows_loaded} default rows into '{table_name}' table from config.")
 
     except FileNotFoundError:
         print(f"Error: Configuration file not found at {config_path}")
+    except KeyError as e:
+        print(f"Error: Missing key {e} in configuration. Cannot create default departments.")
     except json.JSONDecodeError:
         print(f"Error: Could not decode JSON from {config_path}")
     except exc.SQLAlchemyError as e:

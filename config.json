@@ -16,7 +16,46 @@
     "nationalities": ["British", "Malaysian", "Indian", "Chinese", "Australian", "American", "Other"],
     "ethnicities": ["White", "Asian", "Black", "Mixed", "Other"],
     "eal_statuses": ["EAL", "Non-EAL"],
-    "sen_statuses": ["None", "SEN Support", "EHCP"]
+    "sen_statuses": ["None", "SEN Support", "EHCP"],
+    "default_department_list": [
+        {"isams_subject_code": "PHY", "subject_name": "Physics", "report_name": "Physics"},
+        {"isams_subject_code": "ENG", "subject_name": "English", "report_name": "English"},
+        {"isams_subject_code": "MAT", "subject_name": "Mathematics", "report_name": "Maths"},
+        {"isams_subject_code": "BIO", "subject_name": "Biology", "report_name": "Biology"},
+        {"isams_subject_code": "CHE", "subject_name": "Chemistry", "report_name": "Chemistry"},
+        {"isams_subject_code": "HIS", "subject_name": "History", "report_name": "History"},
+        {"isams_subject_code": "GEO", "subject_name": "Geography", "report_name": "Geography"},
+        {"isams_subject_code": "ART", "subject_name": "Art", "report_name": "Art"},
+        {"isams_subject_code": "MUS", "subject_name": "Music", "report_name": "Music"},
+        {"isams_subject_code": "PE", "subject_name": "Physical Education", "report_name": "PE"}
+    ],
+    "default_report_grades_list": [
+        {"result": "A*", "numerical_result": 9.5, "data_type": "Attainment", "category": "Single grades", "ucas_points": null, "gis_points": null, "printable_result": "A*", "hex_colour": null, "hex_colour_text": null, "description": "A* Grade", "total_grades": 1, "igcse_pass": 1},
+        {"result": "A", "numerical_result": 9.0, "data_type": "Attainment", "category": "Single grades", "ucas_points": null, "gis_points": null, "printable_result": "A", "hex_colour": null, "hex_colour_text": null, "description": "A Grade", "total_grades": 1, "igcse_pass": 1},
+        {"result": "B", "numerical_result": 8.0, "data_type": "Attainment", "category": "Single grades", "ucas_points": null, "gis_points": null, "printable_result": "B", "hex_colour": null, "hex_colour_text": null, "description": "B Grade", "total_grades": 1, "igcse_pass": 1},
+        {"result": "9", "numerical_result": 9.0, "data_type": "Attainment", "category": "GCSE 9-1", "ucas_points": null, "gis_points": null, "printable_result": "9", "hex_colour": null, "hex_colour_text": null, "description": "Grade 9", "total_grades": 1, "igcse_pass": 1},
+        {"result": "Pass", "numerical_result": 1.0, "data_type": "Generic", "category": "Pass/Fail", "ucas_points": null, "gis_points": null, "printable_result": "Pass", "hex_colour": null, "hex_colour_text": null, "description": "Pass", "total_grades": 1, "igcse_pass": 1}
+    ]
+  },
+  "id_generation": {
+    "gis_id_min": 1000000, "gis_id_max": 9999999,
+    "sims_pk_min": 2000000, "sims_pk_max": 9999999,
+    "isams_school_id_min": 3000000, "isams_school_id_max": 9999999,
+    "student_user_code_prefix": "stu", "student_user_code_range_max": 9999,
+    "staff_user_code_prefix": "stf", "staff_user_code_range_min": 10000, "staff_user_code_range_max": 99999,
+    "person_bk_min": 1000, "person_bk_max": 9999
+  },
+  "student_generation_options": {
+    "preferred_name_difference_probability": 0.2,
+    "sen_profile_url_probability": 0.2,
+    "exam_candidate_number_min": 100000, "exam_candidate_number_max": 999999,
+    "ucas_personal_id_probability": 0.5,
+    "ucas_personal_id_min": 100000000, "ucas_personal_id_max": 999999999
+  },
+  "staff_generation_options": {
+    "staff_code_length_from_surname": 3,
+    "sims_pk_min": 10000, "sims_pk_max": 99999,
+    "row_expiry_probability": 0.1
   },
   "class_generation": {
     "department_custom_distribution": [
@@ -27,7 +66,10 @@
     "default_year_groups_for_classes": ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13"],
     "default_classes_per_group": 2,
     "min_students_per_class": 15,
-    "max_students_per_class": 25
+    "max_students_per_class": 25,
+    "teacher_b_probability": 0.3,
+    "teacher_c_probability": 0.05,
+    "isams_id_teaching_group_min": 10000, "isams_id_teaching_group_max": 99999
   },
   "attendance_rules": {
     "week_structure": {
@@ -37,15 +79,28 @@
       "Thursday": ["AM Reg", "P1", "P2", "P3", "PM Reg", "P4"],
       "Friday": ["P1", "P2", "P3", "P4"]
     },
-    "attendance_codes_probabilities": {
-      "/": 0.90,
-      "N": 0.03,
-      "I": 0.03,
-      "M": 0.01,
-      "L": 0.02,
-      "H": 0.005,
-      "O": 0.005
-    }
+    "attendance_codes": {
+        "/": {"description": "Present", "probability": 0.90},
+        "N": {"description": "Absent - no reason", "probability": 0.03},
+        "I": {"description": "Illness", "probability": 0.03},
+        "M": {"description": "Medical / Dental", "probability": 0.01},
+        "L": {"description": "Late", "probability": 0.02},
+        "H": {"description": "Authorised holiday", "probability": 0.005},
+        "O": {"description": "Unauthorised holiday", "probability": 0.005}
+    },
+    "time_recorded_hour_min": 8, "time_recorded_hour_max": 15,
+    "time_recorded_minute_choices": [0, 10, 30, 45],
+    "minutes_late_min": 1, "minutes_late_max": 10,
+    "room_prefix": "R", "room_number_min": 1, "room_number_max": 99,
+    "sims_class_pk_min": 10000, "sims_class_pk_max": 99999,
+    "sims_subject_pk_min": 100, "sims_subject_pk_max": 999
+  },
+  "report_data_options": {
+    "teacher_tags": ["A", "B", "C"]
+  },
+  "pivoted_report_card_options": {
+    "fill_down_limit_year_groups": ["10", "12"],
+    "fill_down_limit_value": 2
   },
   "data_file_paths": {
     "dim_dates_csv_path": "data/dim_dates.csv",

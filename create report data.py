@@ -19,6 +19,16 @@ try:
     db_port = db_config.get('port', 3306)
     DB_URI = f"mysql+pymysql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
 
+    # Load report_data_options
+    report_data_opts = config.get('report_data_options', {})
+    if not report_data_opts:
+        print(f"Warning: 'report_data_options' section not found in {CONFIG_PATH}. Using default report data parameters.")
+    
+    teacher_tags = report_data_opts.get('teacher_tags', ['A', 'B', 'C'])
+    if 'teacher_tags' not in report_data_opts:
+        print(f"Warning: 'teacher_tags' not in report_data_options. Using default: {teacher_tags}")
+
+
 except FileNotFoundError:
     print(f"Error: Configuration file '{CONFIG_PATH}' not found. Exiting.")
     sys.exit(1)
@@ -96,7 +106,7 @@ for _, row in enrolments_df.iterrows():
     for _, term_row in term_groups.iterrows():
         entry_date = term_row["date"] # Changed column name
         term = term_row["term_name"] # Changed column name
-        teacher_tag = random.choice(["A", "B", "C"])
+        teacher_tag = random.choice(teacher_tags) # Use teacher_tags from config
 
         for label, grade_pool in [
             ("AB", att_grades),
