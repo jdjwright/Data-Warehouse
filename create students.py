@@ -35,13 +35,12 @@ def generate_fake_student(row):
     min_age = max_age - 1
     dob = fake.date_of_birth(minimum_age=min_age, maximum_age=max_age)
 
-    # Determine realistic join date range
+    # Determine join date
     max_years_back = 15 - (len(year_groups) - 1 - age_position)
-    max_join_days_ago = max_years_back * 365
+    max_join_days_ago = max(1, max_years_back * 365)
     join_date = datetime.date.today() - datetime.timedelta(days=random.randint(0, max_join_days_ago))
-    row_effective_date = join_date
-    leave_date = None
-    row_expiration_date = leave_date or None
+
+    leave_date = None  # You can add logic later for this if needed
 
     return {
         "First Name": first_name,
@@ -64,8 +63,8 @@ def generate_fake_student(row):
         "Ethnicity": random.choice(ethnicities),
         "GIS Join Date": int(join_date.strftime('%Y%m%d')),
         "GIS Leave Date": int(leave_date.strftime('%Y%m%d')) if leave_date else None,
-        "Row Effective Date": row_effective_date,
-        "Row Expiration Date": row_expiration_date,
+        "Row Effective Date": join_date,
+        "Row Expiration Date": leave_date,
         "ISAMS PK": str(uuid.uuid4()),
         "On Roll": "Yes" if leave_date is None else "No",
         "UCAS Personal id": random.randint(100000000, 999999999) if random.random() > 0.5 else None,
@@ -75,6 +74,7 @@ def generate_fake_student(row):
         "Graduation academic year": f"{join_date.year + 5}/{(join_date.year + 6)%100:02d}" if leave_date else None,
         "Person BK": row["person_bk"],
     }
+
 
 # Generate and insert students
 students = [generate_fake_student(row) for _, row in df_people.iterrows()]
