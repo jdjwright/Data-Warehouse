@@ -1,0 +1,4 @@
+isams_subject_code,subject_name,report_name,isams_id,isams_department_id
+MAT,Mathematics,Maths,DEP-001,DPT-MATH
+PHY,Physics,Physics,DEP-002,DPT-SCI
+ENG,English,English,DEP-003,DPT-ENG

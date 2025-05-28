@@ -1,0 +1,3 @@
+result,numerical_result,ucas_points,gis_points,data_type,printable_result,hex_colour,hex_colour_text,description,total_grades,igcse_pass,category
+A*,9.5,56,9.5,Attainment,A*,#FFD700,#000000,Highest grade,1,1,A-Level
+9,9.0,0,9.0,Attainment,9,#C0C0C0,#000000,Top GCSE grade,1,1,GCSE 9-1

@@ -1,25 +1,60 @@
 import pandas as pd
 import random
 from sqlalchemy import create_engine, text
+import json # Added
+import sys # Added
+
+# --- Configuration Loading ---
+CONFIG_PATH = 'config.json'
+try:
+    with open(CONFIG_PATH, 'r') as f:
+        config = json.load(f)
+    
+    db_config = config.get('database_config', {})
+    db_host = db_config.get('host', 'mariadb') # Default to 'mariadb' as per typical setup
+    db_user = db_config.get('user', 'trainee')
+    db_password = db_config.get('password', 'trainpass')
+    db_name = db_config.get('database', 'warehouse')
+    db_port = db_config.get('port', 3306)
+    DB_URI = f"mysql+pymysql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
+
+except FileNotFoundError:
+    print(f"Error: Configuration file '{CONFIG_PATH}' not found. Exiting.")
+    sys.exit(1)
+except json.JSONDecodeError:
+    print(f"Error: Could not decode JSON from '{CONFIG_PATH}'. Check its format. Exiting.")
+    sys.exit(1)
+except KeyError as e: 
+    print(f"Error: Missing essential key '{e}' in configuration file. Exiting.")
+    sys.exit(1)
+except Exception as e:
+    print(f"An unexpected error occurred while loading configuration: {e}. Exiting.")
+    sys.exit(1)
 
 # Setup
-engine = create_engine("mysql+pymysql://trainee:trainpass@localhost/warehouse")
+engine = create_engine(DB_URI) # Use loaded DB_URI
 random.seed(42)
 
 # Get current academic year
 today = pd.to_datetime("today")
-academic_year = pd.read_sql(f"""
-    SELECT DISTINCT `Academic Year`
-    FROM dim_Dates
-    WHERE Date = '{today.date()}'
+# Ensure academic_year is fetched correctly and handle potential empty result
+academic_year_df = pd.read_sql(f"""
+    SELECT DISTINCT `academic_year`
+    FROM dim_dates
+    WHERE `date` = '{today.date()}'
     LIMIT 1
-""", engine).iloc[0]["Academic Year"]
+""", engine)
+if academic_year_df.empty:
+    print(f"Error: Could not determine academic year for date {today.date()}. Exiting.")
+    sys.exit(1)
+academic_year = academic_year_df.iloc[0]["academic_year"]
 
-# Load current year report data
+# Load current year report data from fact_report (already lowercase)
+# All column names from fact_report are assumed to be lowercase snake_case
 report_df = pd.read_sql(f"""
     SELECT *
-    FROM `fact_report`
-    WHERE `Academic year` = '{academic_year}' AND `Data type` IN (
+    FROM fact_report
+    WHERE academic_year = '{academic_year}' AND data_type IN ( 
         'A2 Grade', 'AB', 'AS Grade', 'Attainment', 'Commendation', 'If Challenged',
         'IGCSE Grade', 'Mock', 'Mock - A2', 'Mock - AS', 'Mock - IGCSE', 'Mock - Y10 EOY',
         'Mock score', 'OB', 'Predicted', 'Progress', 'PTE', 'PTM', 'Quantitative',
@@ -28,114 +63,201 @@ report_df = pd.read_sql(f"""
 """, engine)
 
 # Compute average entry date for AB/OB
-avg_entry = report_df[report_df['Data type'].isin(['AB', 'OB'])].groupby(
-    ['Student', 'Academic year', 'Term', 'Subject', 'Teacher a b or c']
-)['Entry Date'].mean().reset_index()
+# Part 1: Using lowercase snake_case for columns from fact_report
+avg_entry_group_keys = ['student', 'academic_year', 'term', 'subject', 'teacher_a_b_or_c']
+avg_entry = report_df[report_df['data_type'].isin(['AB', 'OB'])].groupby(
+    avg_entry_group_keys
+)['entry_date'].mean().reset_index()
 
 # Keep latest record per grouping
+latest_subset_keys = ['student', 'academic_year', 'term', 'subject', 'teacher_a_b_or_c', 'data_type']
 latest = report_df.drop_duplicates(
-    subset=['Student', 'Academic year', 'Term', 'Subject', 'Teacher a b or c', 'Data type'],
+    subset=latest_subset_keys,
     keep='first'
 ).merge(
     avg_entry,
-    on=['Student', 'Academic year', 'Term', 'Subject', 'Teacher a b or c'],
+    on=avg_entry_group_keys, # Use same keys for merge
     how='left',
-    suffixes=('', '_avg')
+    suffixes=('', '_avg') # entry_date becomes entry_date_avg
 )
 
 # Pivot into wide format
+pivot_index_keys = ['student', 'academic_year', 'term', 'subject', 'teacher_a_b_or_c', 'entry_date_avg']
 pivoted = latest.pivot_table(
-    index=['Student', 'Academic year', 'Term', 'Subject', 'Teacher a b or c', 'Entry Date_avg'],
-    columns='Data type',
-    values=['Result', 'Numeric result', 'Result pk'],
+    index=pivot_index_keys,
+    columns='data_type', # Use data_type for columns
+    values=['result', 'numeric_result', 'result_pk'], # Use lowercase snake_case values
     aggfunc='first'
 ).reset_index()
 
-pivoted.columns = ['_'.join(col).strip() if col[1] else col[0] for col in pivoted.columns.values]
+# Flatten MultiIndex columns (e.g., ('result', 'Attainment') -> 'result_Attainment')
+pivoted.columns = ['_'.join(col).strip() if isinstance(col, tuple) and col[1] else col[0] for col in pivoted.columns.values]
+# Ensure key columns from index are not mangled if they were single level
+expected_cols = pivot_index_keys + [col for col in pivoted.columns if col not in pivot_index_keys]
+pivoted = pivoted[expected_cols]
 
-# Bring in Year Group from dim_students_isams
+
+# Part 2: Reading from dim_students_isams
+# Columns are already lowercase snake_case as per schema
 students = pd.read_sql("""
-    SELECT `Year Group`, `Row Effective Date`, `Row Expiration Date`, `Person BK`
-    FROM `dim_students_isams`
+    SELECT year_group, row_effective_date, row_expiration_date, person_bk
+    FROM dim_students_isams
 """, engine)
 
 # Ensure dates are clean
-students['Row Expiration Date'] = students['Row Expiration Date'].fillna('9999-01-01')
-students['Row Effective Date'] = pd.to_datetime(students['Row Effective Date'], errors='coerce')
-students['Row Expiration Date'] = pd.to_datetime(students['Row Expiration Date'], errors='coerce')
-pivoted['Entry Date_avg'] = pd.to_datetime(pivoted['Entry Date_avg'], format='%Y%m%d', errors='coerce')
+students['row_expiration_date'] = students['row_expiration_date'].fillna('9999-01-01')
+students['row_effective_date'] = pd.to_datetime(students['row_effective_date'], errors='coerce')
+students['row_expiration_date'] = pd.to_datetime(students['row_expiration_date'], errors='coerce')
+# entry_date_avg is from the pivot, ensure it's datetime
+pivoted['entry_date_avg'] = pd.to_datetime(pivoted['entry_date_avg'], format='%Y%m%d', errors='coerce')
 
-# Join to get year group
-merged = pivoted.merge(students, left_on='Student', right_on='Person BK', how='left')
 
-merged['Row Expiration Date'] = merged['Row Expiration Date'].fillna(pd.Timestamp("2099-12-31"))
+# Part 3: Merging and Processing
+# 'student' is from pivoted (lowercase), 'person_bk' from students (lowercase)
+merged = pivoted.merge(students, left_on='student', right_on='person_bk', how='left')
 
+merged['row_expiration_date'] = merged['row_expiration_date'].fillna(pd.Timestamp("2099-12-31"))
+
+# Columns are already lowercase
 merged = merged[
-    (merged['Entry Date_avg'] >= merged['Row Effective Date']) &
-    (merged['Entry Date_avg'] <= merged['Row Expiration Date'])
-].drop(columns=['Row Effective Date', 'Row Expiration Date', 'Person BK'])
+    (merged['entry_date_avg'] >= merged['row_effective_date']) &
+    (merged['entry_date_avg'] <= merged['row_expiration_date'])
+].drop(columns=['row_effective_date', 'row_expiration_date', 'person_bk'])
 
 
-# Define fill-down columns
-fill_cols = [c for c in merged.columns if any(prefix in c for prefix in ["Result_", "Numeric result_", "Result pk_"])]
+# Define fill-down columns (these are the pivoted column names like 'result_Attainment')
+fill_cols = [c for c in merged.columns if any(prefix in c for prefix in ["result_", "numeric_result_", "result_pk_"])]
 
 # Fill-down logic per student/subject
 def fill_down(group):
     group = group.copy()
     for col in fill_cols:
-        group[col] = group.groupby('Academic year')[col].ffill()
-        if group['Year Group'].isin(['10', '12']).any():
-            group[col] = group.groupby('Student')[col].ffill(limit=2)
+        # 'academic_year', 'student', 'year_group' should be lowercase here
+        group[col] = group.groupby('academic_year')[col].ffill()
+        if group['year_group'].isin(['10', '12']).any(): # 'year_group' is from dim_students_isams
+            group[col] = group.groupby('student')[col].ffill(limit=2)
     return group
 
-df = merged.sort_values(['Student', 'Subject', 'Teacher a b or c', 'Academic year', 'Term'])
-df = df.groupby(['Student', 'Subject']).apply(fill_down).reset_index(drop=True)
+# Ensure sort keys are lowercase
+df = merged.sort_values(['student', 'subject', 'teacher_a_b_or_c', 'academic_year', 'term'])
+df = df.groupby(['student', 'subject']).apply(fill_down).reset_index(drop=True)
 
-# Calculated columns
+
+# Part 4: Calculated columns & Renaming
 # Safe calculation of derived columns
 def safe_calc(col1, col2, label):
+    # df columns here are the pivoted names like 'numeric_result_Attainment'
     if col1 in df.columns and col2 in df.columns:
-        df[label] = df[col1] - df[col2]
+        df[label] = df[col1] - df[col2] # New column 'label' will be created
 
-safe_calc('Numeric result_Attainment', 'Numeric result_Target', 'Current attainment minus target')
-safe_calc('Numeric result_Attainment', 'Numeric result_If Challenged', 'Current attainment minus CAT4 target')
-safe_calc('Numeric result_Target', 'Numeric result_If Challenged', 'Target minus CAT4 target')
+# Labels for new columns must be lowercase snake_case as per schema
+safe_calc('numeric_result_Attainment', 'numeric_result_Target', 'current_attainment_minus_target')
+safe_calc('numeric_result_Attainment', 'numeric_result_If Challenged', 'current_attainment_minus_cat4_target') #Schema: current_attainment_minus_cat4_target
+safe_calc('numeric_result_Target', 'numeric_result_If Challenged', 'target_minus_cat4_target') # Schema: target_minus_cat4_target
 
-safe_calc('Numeric result_IGCSE Grade', 'Numeric result_Target', 'IGCSE minus target')
-safe_calc('Numeric result_IGCSE Grade', 'Numeric result_If Challenged', 'IGCSE minus CAT4')
-safe_calc('Numeric result_IGCSE Grade', 'Numeric result_Attainment', 'IGCSE minus attainment')
-safe_calc('Numeric result_IGCSE Grade', 'Numeric result_Predicted', 'IGCSE minus prediction')
+safe_calc('numeric_result_IGCSE Grade', 'numeric_result_Target', 'igcse_minus_target')
+safe_calc('numeric_result_IGCSE Grade', 'numeric_result_If Challenged', 'igcse_minus_cat4')
+safe_calc('numeric_result_IGCSE Grade', 'numeric_result_Attainment', 'igcse_minus_attainment')
+safe_calc('numeric_result_IGCSE Grade', 'numeric_result_Predicted', 'igcse_minus_prediction')
 
-safe_calc('Numeric result_AS Grade', 'Numeric result_Target', 'AS minus target')
-safe_calc('Numeric result_AS Grade', 'Numeric result_If Challenged', 'AS minus CAT4')
-safe_calc('Numeric result_AS Grade', 'Numeric result_Attainment', 'AS minus attainment')
-safe_calc('Numeric result_AS Grade', 'Numeric result_Predicted', 'AS minus prediction')
+safe_calc('numeric_result_AS Grade', 'numeric_result_Target', 'as_minus_target')
+safe_calc('numeric_result_AS Grade', 'numeric_result_If Challenged', 'as_minus_cat4')
+safe_calc('numeric_result_AS Grade', 'numeric_result_Attainment', 'as_minus_attainment')
+safe_calc('numeric_result_AS Grade', 'numeric_result_Predicted', 'as_minus_prediction')
 
-safe_calc('Numeric result_A2 Grade', 'Numeric result_Target', 'A2 minus target')
-safe_calc('Numeric result_A2 Grade', 'Numeric result_If Challenged', 'A2 minus CAT4')
-safe_calc('Numeric result_A2 Grade', 'Numeric result_Attainment', 'A2 minus attainment')
-safe_calc('Numeric result_A2 Grade', 'Numeric result_Predicted', 'A2 minus prediction')
+safe_calc('numeric_result_A2 Grade', 'numeric_result_Target', 'a2_minus_target')
+safe_calc('numeric_result_A2 Grade', 'numeric_result_If Challenged', 'a2_minus_cat4')
+safe_calc('numeric_result_A2 Grade', 'numeric_result_Attainment', 'a2_minus_attainment')
+safe_calc('numeric_result_A2 Grade', 'numeric_result_Predicted', 'a2_minus_prediction')
 
-safe_calc('Numeric result_AS Grade', 'Numeric result_IGCSE Grade', 'AS minus IGCSE')
-safe_calc('Numeric result_A2 Grade', 'Numeric result_IGCSE Grade', 'A2 minus IGCSE')
-safe_calc('Numeric result_A2 Grade', 'Numeric result_AS Grade', 'A2 minus AS')
+safe_calc('numeric_result_AS Grade', 'numeric_result_IGCSE Grade', 'as_minus_igcse')
+safe_calc('numeric_result_A2 Grade', 'numeric_result_IGCSE Grade', 'a2_minus_igcse')
+safe_calc('numeric_result_A2 Grade', 'numeric_result_AS Grade', 'a2_minus_as')
 
-
-# Rename for clarity
+# Rename pivoted columns to final schema names (lowercase snake_case)
+# Keys are the auto-generated pivot names, values are the schema names
 column_mapping = {
-    'Result_Attainment': 'Current Attainment',
-    'Result_Target': 'Target grade',
-    'Result_If Challenged': 'CAT4 Target grade',
-    'Result_AB': 'Attitudinal behaviours',
-    'Result_OB': 'Organisational behaviours',
-}
-df_renamed = df.rename(columns=column_mapping)
+    'student': 'student', # Already correct
+    'academic_year': 'academic_year', # Already correct
+    'term': 'term', # Already correct
+    'subject': 'subject', # Already correct
+    'teacher_a_b_or_c': 'teacher_a_b_or_c', # Already correct
+    'entry_date_avg': 'entry_date', # Schema name for the average entry date
+    'year_group': 'year_group', # Already correct from dim_students_isams merge
 
-# Clean up columns
-drop_cols = [c for c in df_renamed.columns if 'Mock score' in c or 'Commendation' in c]
-df_final = df_renamed.drop(columns=drop_cols)
-df_final
+    'result_Attainment': 'current_attainment',
+    'numeric_result_Attainment': 'numeric_current_attainment',
+    'result_pk_Attainment': 'result_pk_current_attainment',
+
+    'result_Target': 'target_grade',
+    'numeric_result_Target': 'numeric_target_grade',
+    'result_pk_Target': 'result_pk_target_grade',
+
+    'result_If Challenged': 'cat4_target_grade', # 'If Challenged' becomes 'cat4_target_grade'
+    'numeric_result_If Challenged': 'numeric_cat4_target_grade',
+    'result_pk_If Challenged': 'result_pk_cat4_target_grade',
+
+    'result_AB': 'attitudinal_behaviours',
+    'numeric_result_AB': 'numeric_attitudinal_behaviours', # Assuming schema might have this
+    'result_pk_AB': 'result_pk_attitudinal_behaviours',
+
+    'result_OB': 'organisational_behaviours',
+    'numeric_result_OB': 'numeric_organisational_behaviours', # Assuming schema might have this
+    'result_pk_OB': 'result_pk_organisational_behaviours',
+    
+    # Add other pivoted grades if they exist and are needed, e.g., IGCSE, AS, A2, Predicted
+    'result_IGCSE Grade': 'igcse_grade',
+    'numeric_result_IGCSE Grade': 'numeric_igcse_grade',
+    'result_pk_IGCSE Grade': 'result_pk_igcse_grade',
+
+    'result_AS Grade': 'as_grade',
+    'numeric_result_AS Grade': 'numeric_as_grade',
+    'result_pk_AS Grade': 'result_pk_as_grade',
+
+    'result_A2 Grade': 'a2_grade',
+    'numeric_result_A2 Grade': 'numeric_a2_grade',
+    'result_pk_A2 Grade': 'result_pk_a2_grade',
+    
+    'result_Predicted': 'predicted_grade',
+    'numeric_result_Predicted': 'numeric_predicted_grade',
+    'result_pk_Predicted': 'result_pk_predicted_grade',
+    
+    # Mock grades if needed
+    'result_Mock': 'mock_grade',
+    'numeric_result_Mock': 'numeric_mock_grade',
+    'result_pk_Mock': 'result_pk_mock_grade',
+
+    # Ensure all calculated columns (now already named correctly) are kept
+    # The safe_calc function added them with the correct schema names.
+}
+# Select and rename columns. Only keep columns that are defined in column_mapping.
+# This also orders them as per column_mapping if underlying dict is ordered (Python 3.7+)
+df_renamed = df.rename(columns=column_mapping)
+final_columns = [col_name for col_name in column_mapping.values() if col_name in df_renamed.columns]
+# Add the calculated difference columns, which should already have correct schema names
+calculated_difference_columns = [
+    'current_attainment_minus_target', 'current_attainment_minus_cat4_target', 'target_minus_cat4_target',
+    'igcse_minus_target', 'igcse_minus_cat4', 'igcse_minus_attainment', 'igcse_minus_prediction',
+    'as_minus_target', 'as_minus_cat4', 'as_minus_attainment', 'as_minus_prediction',
+    'a2_minus_target', 'a2_minus_cat4', 'a2_minus_attainment', 'a2_minus_prediction',
+    'as_minus_igcse', 'a2_minus_igcse', 'a2_minus_as'
+]
+for col in calculated_difference_columns:
+    if col in df_renamed.columns and col not in final_columns: # df_renamed because safe_calc added to df, which became df_renamed
+        final_columns.append(col)
+
+df_final = df_renamed[final_columns]
+
+
+# Clean up columns - this part might be redundant if final_columns selection is precise
+# For example, columns like 'result_Mock score' or 'numeric_result_Commendation' would be dropped
+# if they are not in column_mapping and not explicitly added to final_columns.
+# Current approach is to define what to keep via column_mapping and calculated_difference_columns.
+# drop_cols = [c for c in df_final.columns if 'Mock score' in c or 'Commendation' in c or 'PTE' in c or 'PTM' in c or 'Quantitative' in c or 'Mean' in c or 'Recommendation' in c or 'Spatial' in c or 'Target or recommendation' in c or 'Verbal' in c]
+# df_final = df_final.drop(columns=drop_cols, errors='ignore')
+
 
 # Save to staging and run post-processing
+# Table name "fact Termly Report Card" is mixed case as per schema
 with engine.begin() as conn:
     df_final.to_sql("fact Termly Report Card", con=conn, schema="warehouse", if_exists="replace", index=False)

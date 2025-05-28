@@ -1,0 +1,55 @@
+{
+  "database_config": {
+    "host": "mariadb",
+    "user": "trainee",
+    "password": "trainpass",
+    "database": "warehouse",
+    "port": 3306
+  },
+  "school_parameters": {
+    "students_to_create": 1500,
+    "staff_to_create": 150,
+    "email_domain": "example.edu",
+    "year_groups": ["N", "R", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13"],
+    "tutor_groups_suffix": ["A", "B", "C", "D", "E", "F"],
+    "houses": ["Red", "Blue", "Green", "Yellow"],
+    "nationalities": ["British", "Malaysian", "Indian", "Chinese", "Australian", "American", "Other"],
+    "ethnicities": ["White", "Asian", "Black", "Mixed", "Other"],
+    "eal_statuses": ["EAL", "Non-EAL"],
+    "sen_statuses": ["None", "SEN Support", "EHCP"]
+  },
+  "class_generation": {
+    "department_custom_distribution": [
+      {"department": "Physics", "numbers": {"9": 3, "10": 3, "11": 2, "12": 1, "13": 1}},
+      {"department": "English", "numbers": {"9": 4, "10": 4, "11": 3, "12": 2, "13": 2}},
+      {"department": "Mathematics", "numbers": {"9": 4, "10": 4, "11": 3, "12": 2, "13": 2}}
+    ],
+    "default_year_groups_for_classes": ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13"],
+    "default_classes_per_group": 2,
+    "min_students_per_class": 15,
+    "max_students_per_class": 25
+  },
+  "attendance_rules": {
+    "week_structure": {
+      "Monday": ["AM Reg", "P1", "P2", "P3", "PM Reg", "P4"],
+      "Tuesday": ["AM Reg", "P1", "P2", "P3", "PM Reg", "P4"],
+      "Wednesday": ["AM Reg", "P1", "P2", "P3"],
+      "Thursday": ["AM Reg", "P1", "P2", "P3", "PM Reg", "P4"],
+      "Friday": ["P1", "P2", "P3", "P4"]
+    },
+    "attendance_codes_probabilities": {
+      "/": 0.90,
+      "N": 0.03,
+      "I": 0.03,
+      "M": 0.01,
+      "L": 0.02,
+      "H": 0.005,
+      "O": 0.005
+    }
+  },
+  "data_file_paths": {
+    "dim_dates_csv_path": "data/dim_dates.csv",
+    "dim_departments_csv_path": "data/dim_departments.csv",
+    "dim_report_grade_csv_path": "data/dim_report_grade.csv"
+  }
+}
